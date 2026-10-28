@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP Summon",
+    "description": "MCP servers stay dormant until the model summons them. One mcp_summon tool activates a server and its tools become real native tools for the rest of the session; release to unregister and reclaim."
+  }
+}

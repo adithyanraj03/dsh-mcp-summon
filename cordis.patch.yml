@@ -1,0 +1,31 @@
+# dsh-mcp-summon: dormant-by-default MCP for dsh. The plugin registers exactly
+# one model-facing tool — `mcp_summon` — whose description carries a card per
+# configured server. Summoning a server spawns it, fetches its tool list, and
+# registers every tool as a real native tool (`mcp__<server>__<tool>`) for the
+# rest of the session; releasing unregisters and kills it.
+#
+# `name` MUST be the package name: the loader imports this exact specifier.
+# Server rows use the same shape as '@deepseek-ai/dsh-mcp-client'
+# (serverName / transport / command / args / env / cwd); v1 is stdio-only.
+- insert:
+    - id: dsh-mcp-summon
+      name: 'dsh-mcp-summon'
+      config:
+        servers: []
+        # Example — uncomment and point at your own servers:
+        # servers:
+        #   - serverName: demo
+        #     transport: stdio
+        #     command: npx
+        #     args: ['-y', '@modelcontextprotocol/server-everything']
+        #     summary: >-
+        #       Reference MCP server: echo, add, long-running ticks, annotations,
+        #       icons — useful for testing anything MCP-shaped.
+        #     disableTools: []          # raw tool names to keep off the surface
+        #   - serverName: my-server
+        #     transport: stdio
+        #     command: node
+        #     args: ['C:/path/to/server.mjs']
+        #     env: {}                   # secrets only here: args land in argv (visible to ps)
+        #     cwd: ''
+        #     toolCallTimeoutMs: 60000
