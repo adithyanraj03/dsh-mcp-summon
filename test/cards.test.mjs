@@ -38,6 +38,14 @@ test('configHash ignores card-only fields and tracks measured ones', () => {
   assert.notEqual(configHash(row({ env: { TOKEN: 'x' } })), base, 'a rotated credential re-measures');
 });
 
+test('configHash tracks daemon identity but not its start timeout', () => {
+  const base = configHash(row());
+  const daemon = { command: 'xerj', args: ['--insecure'], env: {}, cwd: '', healthUrl: 'http://127.0.0.1:9200/' };
+  assert.notEqual(configHash(row({ daemon })), base, 'adding a daemon changes the identity');
+  assert.notEqual(configHash(row({ daemon: { ...daemon, healthUrl: 'http://127.0.0.1:9201/' } })), base);
+  assert.equal(configHash(row({ daemon: { ...daemon, startTimeoutMs: 9999 } })), configHash(row({ daemon: { ...daemon, startTimeoutMs: 1000 } })), 'start timeout does not affect cost');
+});
+
 test('measureTools counts exactly the wire-whitelisted fields', () => {
   const tools = [
     { name: 'a', description: 'x', inputSchema: { type: 'object' } },

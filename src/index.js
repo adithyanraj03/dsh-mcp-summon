@@ -33,6 +33,23 @@ export const inject = ['tools'];
 const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 /** Default timeout for individual MCP tool calls (ms). */
 const DEFAULT_TOOL_CALL_TIMEOUT_MS = 60000;
+/** Default wait for a spawned daemon's health endpoint to answer (ms). */
+const DEFAULT_DAEMON_START_TIMEOUT_MS = 15000;
+
+/**
+ * A long-lived companion process some stdio servers proxy to (e.g. `xerj mcp`
+ * → the xerj node on :9200). Summon ensures it is healthy first, spawning it
+ * detached if not; release never kills it — it is shared infrastructure.
+ */
+const DaemonSpec = z.object({
+  command: z.string().required(),
+  args: z.array(String).default([]),
+  env: z.dict(String).default({}),
+  cwd: z.string().default(''),
+  /** GET before summoning; ANY HTTP response counts as up, network error is down. */
+  healthUrl: z.string().required(),
+  startTimeoutMs: z.number().default(DEFAULT_DAEMON_START_TIMEOUT_MS),
+});
 
 /** One server row — the same shape as '@deepseek-ai/dsh-mcp-client', stdio only. */
 const ServerRow = z.object({
@@ -47,6 +64,8 @@ const ServerRow = z.object({
   /** Raw tool names to keep off the surface (e.g. auto-send field-report tools). */
   disableTools: z.array(String).default([]),
   toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+  /** Optional local service this server needs; see DaemonSpec (absent = no daemon). */
+  daemon: DaemonSpec,
 });
 
 export const Config = z.object({
@@ -61,9 +80,9 @@ const HEADER = [
   '',
   'The servers below are configured but NOT connected; their tools are NOT in your tool list yet. Actions:',
   '- { action: "list" } — show these server cards again.',
-  '- { action: "summon", server: "<name>" } — start the server and register its tools as native mcp__<name>__<tool> tools. They appear from your NEXT turn and stay for the rest of this session; their full schemas then cost ~N tokens every turn (N is on the card). Summon only what you will actually use, and release it when done.',
-  '- { action: "release", server: "<name>" } — unregister its tools and stop its process.',
-  '- { action: "status" } — per-server state: dormant / starting / summoned / failed, tool count, schema bytes, pid.',
+  '- { action: "summon", server: "<name>" } — start the server (and its daemon, if configured and not already up) and register its tools as native mcp__<name>__<tool> tools. They appear from your NEXT turn and stay for the rest of this session; their full schemas then cost ~N tokens every turn (N is on the card). Summon only what you will actually use, and release it when done.',
+  '- { action: "release", server: "<name>" } — unregister its tools and stop its process; a daemon stays running for other users of it.',
+  '- { action: "status" } — per-server state: dormant / starting / summoned / failed, tool count, schema bytes, pid, daemon pid.',
   'Pass server: "*" with summon or release to act on every configured server.',
 ].join('\n');
 
@@ -74,7 +93,7 @@ function describe(rows, cache) {
 function statusText(manager) {
   const lines = manager.status().map((s) => {
     const detail = s.state === 'summoned' || s.toolCount > 0
-      ? ` (${s.toolCount} tools, ${s.schemaBytes} schema bytes ≈ ${s.tokens} tokens/turn${s.pid ? `, pid ${s.pid}` : ''})`
+      ? ` (${s.toolCount} tools, ${s.schemaBytes} schema bytes ≈ ${s.tokens} tokens/turn${s.pid ? `, pid ${s.pid}` : ''}${s.daemonPid ? `, daemon pid ${s.daemonPid}` : ''})`
       : '';
     const error = s.lastError ? ` — last error: ${s.lastError}` : '';
     return `- ${s.serverName}: ${s.state}${detail}${error}`;
@@ -91,7 +110,7 @@ function summonResultText(result) {
 function releaseResultText(result) {
   if (result.ok === false) return `releasing ${result.server} failed: ${result.error}`;
   if (result.already) return `${result.server} is already dormant.`;
-  return `released ${result.server}: its tools unregister from your next turn and its process stopped.`;
+  return `released ${result.server}: its tools unregister from your next turn and its process stopped (a daemon it started keeps running — it is shared infrastructure).`;
 }
 
 /** The one model-facing tool. `rows` must already be sorted (byte-stable cards). */

@@ -76,6 +76,26 @@ dsh plugin --profile <your-profile> add dsh-mcp-summon
 | `summary` | | `""` | 卡片的能力段落；缺省回退到缓存的工具名 |
 | `disableTools` | | `[]` | 不上面的原始工具名——例如描述里指示 agent 自动外发数据的工具 |
 | `toolCallTimeoutMs` | | `60000` | |
+| `daemon` | | — | 该 server 转发到的常驻本地服务；见下 |
+
+### `daemon:` —— 转发到本地服务的 server
+
+有些 stdio server 只是一个常驻服务的代理——`xerj mcp` 把每次调用转发到 `http://localhost:9200` 上的 xerj 节点，而它自己不会启动节点。`daemon:` 让 summon 自给自足：在启动代理之前，插件先探测 health URL；若无响应，就以 **detached** 方式启动 daemon（它比插件和会话都活得久），轮询到健康后再连接。`release` 会停掉代理，但**绝不杀 daemon**——它是其他工具和会话共用的基础设施。
+
+```yaml
+- serverName: xerj
+  transport: stdio
+  command: xerj
+  args: ['mcp']
+  env: { XERJ_URL: 'http://localhost:9200' }
+  daemon:
+    command: xerj
+    args: ['--insecure', '--data-dir', 'C:/Users/adith/xerj-data']
+    healthUrl: 'http://localhost:9200/'   # 任何 HTTP 响应都算健康
+    startTimeoutMs: 15000
+```
+
+如果你自己已经开着节点（终端、计划任务、服务），探测会看到它，不会重复启动——这个块是安全网，不是进程管理器。
 
 ## 工作原理
 

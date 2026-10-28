@@ -9,10 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { createSummonManager } from '../src/lifecycle.js';
 import { cacheEntry, readCache, writeCache } from '../src/cards.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/echo-mcp-server.mjs', import.meta.url));
+const DAEMON = fileURLToPath(new URL('./fixtures/http-daemon.mjs', import.meta.url));
 
 function makeHarness(overrides = {}) {
   const registered = new Map();
@@ -180,4 +182,65 @@ test('unknown server names are refused without touching state', async () => {
   const result = await h.manager.summon('ghost');
   assert.equal(result.ok, false);
   assert.match(result.error, /unknown server "ghost"/);
+});
+
+// --- daemon: a long-lived companion the proxy needs -----------------------
+
+const freePort = () => 20000 + Math.floor(Math.random() * 40000);
+const healthy = async (url) => {
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(1500) });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+test('daemon: spawns the service detached, waits for health, and release keeps it alive', async (t) => {
+  const port = freePort();
+  const healthUrl = `http://127.0.0.1:${port}/`;
+  const h = makeHarness({ daemon: { command: process.execPath, args: [DAEMON, String(port)], env: {}, cwd: '', healthUrl, startTimeoutMs: 8000 } });
+  t.after(() => h.manager.releaseAll());
+  assert.equal(await healthy(healthUrl), false, 'nothing listening before summon');
+
+  const result = await h.manager.summon('summon-fixture');
+  assert.equal(result.ok, true, 'summon succeeds once the daemon is healthy');
+  assert.equal(await healthy(healthUrl), true, 'daemon answers after summon');
+  const status = h.manager.status()[0];
+  assert.ok(Number.isInteger(status.daemonPid) && status.daemonPid > 0, 'reports the daemon pid');
+
+  await h.manager.release('summon-fixture');
+  assert.equal(h.manager.status()[0].state, 'dormant');
+  assert.equal(await healthy(healthUrl), true, 'release never kills the shared daemon');
+  process.kill(status.daemonPid); // cleanup: the test started it
+});
+
+test('daemon: an already-running service is reused, not double-spawned', async (t) => {
+  const port = freePort();
+  const healthUrl = `http://127.0.0.1:${port}/`;
+  const pre = spawn(process.execPath, [DAEMON, String(port)], { detached: true, stdio: 'ignore' });
+  pre.unref();
+  t.after(() => { try { process.kill(pre.pid); } catch {} });
+  const preStart = Date.now();
+  while (!(await healthy(healthUrl))) {
+    if (Date.now() - preStart > 5000) throw new Error('pre-started daemon never came up');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  const h = makeHarness({ daemon: { command: process.execPath, args: [DAEMON, String(port)], env: {}, cwd: '', healthUrl, startTimeoutMs: 8000 } });
+  t.after(() => h.manager.releaseAll());
+  const result = await h.manager.summon('summon-fixture');
+  assert.equal(result.ok, true);
+  assert.equal(h.manager.status()[0].daemonPid, undefined, 'a daemon started elsewhere is not claimed');
+});
+
+test('daemon: a spawn that never becomes healthy fails the summon with the reason', async (t) => {
+  const port = freePort(); // nothing will answer — the daemon command is missing
+  const h = makeHarness({ daemon: { command: join(tmpdir(), 'definitely-missing-daemon.exe'), args: [String(port)], env: {}, cwd: '', healthUrl: `http://127.0.0.1:${port}/`, startTimeoutMs: 2500 } });
+  t.after(() => h.manager.releaseAll());
+  const result = await h.manager.summon('summon-fixture');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /daemon/);
+  assert.equal(h.manager.status()[0].state, 'failed');
+  assert.equal(h.registered.size, 0, 'no tools registered when the daemon fails');
 });

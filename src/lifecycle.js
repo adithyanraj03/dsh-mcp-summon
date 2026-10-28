@@ -10,6 +10,7 @@
 // register/dispose swap.
 
 import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { publicToolName } from './naming.js';
@@ -21,6 +22,26 @@ const pkg = require('../package.json');
 
 /** Teardown waits at most this long for the transport to confirm closure. */
 export const CLOSE_TIMEOUT_MS = 5000;
+/** Per-probe budget for a daemon health GET. */
+export const HEALTH_PROBE_TIMEOUT_MS = 2000;
+/** Poll interval while waiting for a daemon to come up. */
+export const HEALTH_POLL_INTERVAL_MS = 400;
+
+/** GET the health URL; ANY HTTP response (even 404) means something listens. */
+async function probeHealth(url) {
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function sleep(ms) {
+  // Deliberately NOT unref'd: during daemon polling this timer is what keeps
+  // the event loop alive while the detached child runs elsewhere.
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** Race a close against a timer; a wedged transport must not block teardown. */
 async function closeQuietly(client) {
@@ -55,6 +76,7 @@ export function createSummonManager({ ctx, rows, onMeasured }) {
       client: undefined,
       disposers: new Map(),
       pid: undefined,
+      daemonPid: undefined,
       toolCount: 0,
       schemaBytes: 0,
       tokens: 0,
@@ -64,6 +86,41 @@ export function createSummonManager({ ctx, rows, onMeasured }) {
   }
 
   const label = (serverName) => `dsh-mcp-summon(${serverName})`;
+
+  /**
+   * Make the row's daemon healthy before its proxy is spawned: probe first
+   * (an operator-started service is reused, never double-spawned), else spawn
+   * detached + unref'd so it outlives the plugin, then poll the health URL.
+   * Release never kills it — shared infrastructure, by design.
+   */
+  async function ensureDaemon(server) {
+    const spec = server.row.daemon;
+    if (spec === undefined) return;
+    if (await probeHealth(spec.healthUrl)) {
+      server.daemonPid = undefined; // already running, started elsewhere
+      return;
+    }
+    let spawnError;
+    const child = spawn(spec.command, spec.args ?? [], {
+      detached: true,
+      stdio: 'ignore',
+      cwd: spec.cwd || undefined,
+      env: scrubbedChildEnv(spec.env ?? {}),
+    });
+    child.on('error', (error) => { spawnError = error; });
+    child.unref();
+    const deadline = Date.now() + (spec.startTimeoutMs ?? 15000);
+    while (Date.now() < deadline) {
+      if (spawnError) throw new Error(`daemon spawn failed (${spec.command}): ${spawnError.message}`);
+      if (await probeHealth(spec.healthUrl)) {
+        server.daemonPid = child.pid;
+        ctx.logger.info(`${label(server.row.serverName)}: daemon started (pid ${child.pid}, health ${spec.healthUrl})`);
+        return;
+      }
+      await sleep(HEALTH_POLL_INTERVAL_MS);
+    }
+    throw new Error(`daemon did not become healthy at ${spec.healthUrl} within ${spec.startTimeoutMs ?? 15000}ms${spawnError ? ` (${spawnError.message})` : ''}`);
+  }
 
   /** Serialize one operation per server; the chain never rejects. */
   function enqueue(server, run) {
@@ -92,6 +149,7 @@ export function createSummonManager({ ctx, rows, onMeasured }) {
     server.lastError = undefined;
     let client;
     try {
+      await ensureDaemon(server);
       const transport = new StdioClientTransport({
         command: server.row.command,
         args: server.row.args,
@@ -205,6 +263,7 @@ export function createSummonManager({ ctx, rows, onMeasured }) {
         schemaBytes: server.schemaBytes,
         tokens: server.tokens,
         pid: server.pid,
+        daemonPid: server.daemonPid,
         lastError: server.lastError,
       }));
     },

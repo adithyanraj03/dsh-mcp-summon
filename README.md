@@ -76,12 +76,33 @@ One row, `config.servers: [...]`. Each row is the same shape as `@deepseek-ai/ds
 | `summary` | | `""` | the card's capability paragraph; falls back to cached tool names |
 | `disableTools` | | `[]` | raw tool names to keep off the surface — e.g. servers whose tool descriptions instruct the agent to auto-send data |
 | `toolCallTimeoutMs` | | `60000` | |
+| `daemon` | | — | a long-lived local service this server proxies to; see below |
+
+### `daemon:` — servers that proxy to a local service
+
+Some stdio servers are just a proxy to a long-lived service you run separately — `xerj mcp` forwards every call to a xerj node on `http://localhost:9200`, and refuses to start one itself. A `daemon:` block makes summoning self-sufficient: before spawning the proxy, the plugin probes the health URL; if nothing answers it spawns the daemon **detached** (it outlives the plugin and the session), polls until healthy, then connects. `release` stops the proxy but **never kills the daemon** — it is shared infrastructure other tools and sessions may use.
+
+```yaml
+- serverName: xerj
+  transport: stdio
+  command: xerj
+  args: ['mcp']
+  env: { XERJ_URL: 'http://localhost:9200' }
+  daemon:
+    command: xerj
+    args: ['--insecure', '--data-dir', 'C:/Users/adith/xerj-data']
+    healthUrl: 'http://localhost:9200/'   # ANY HTTP response counts as up
+    startTimeoutMs: 15000
+```
+
+If you already keep the node running yourself (terminal, Task Scheduler, service), the probe sees it and nothing is double-spawned — the block is a safety net, not a supervisor.
 
 ## How it works
 
 | Mechanism | dsh seam |
 | --- | --- |
 | One tool at load, zero processes | `ctx.tools.register` in `apply`; the only startup I/O is one read of the measurement cache |
+| Daemon-backed servers | probe `healthUrl` → spawn detached + unref'd → poll until healthy → connect the proxy; `release` leaves the daemon running |
 | Summoned tools appear next turn | `register` fires `tools/change` — "a global change concerns every agent's next assembly" — and the tool set is re-assembled per turn |
 | Real native behaviour | the official bridge's tool adapter, transport factory and naming rule vendored from `@deepseek-ai/dsh-mcp-client` 0.2.1-rc.3 (MIT) |
 | Honest cost lines | JSON bytes of `{name, description, parameters}` ÷ 4 — exactly the fields the registry's `schemas()` whitelists onto the wire |

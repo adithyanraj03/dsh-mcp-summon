@@ -22,13 +22,19 @@ First release.
   (sorted by `serverName`, frozen for the session) and a server is never
   spawned just to card it.
 - Per-server `disableTools` to keep chosen raw tool names off the surface.
+- Optional `daemon:` block per server — for stdio servers that proxy to a
+  long-lived local service (e.g. `xerj mcp` → a xerj node on `:9200`). Summon
+  probes the health URL first, spawns the daemon detached only if nothing
+  answers, and waits for health before connecting; `release` stops the proxy
+  but never kills the shared daemon.
 - Crash fallback: an unexpected child exit unregisters the server's tools and
   returns it to dormant, with the reason kept for `status`.
 - `scripts/measure-tokens.mjs` — per-server schema bytes/tokens for your own
   configured servers (`--config`, `--fixture`, `--from-json`).
-- Test suite (27 tests, `node --test`) including a dependency-free stdio MCP
+- Test suite (31 tests, `node --test`) including a dependency-free stdio MCP
   fixture server exercised as a real child process: spawn → JSON-RPC → native
-  registration → release → kill, plus crash fallback and idempotence.
+  registration → release → kill, plus crash fallback, idempotence, and daemon
+  spawn / reuse-when-already-up / health-timeout paths.
 - Vendored tool adapter, transport factory and naming rule from
   `@deepseek-ai/dsh-mcp-client` 0.2.1-rc.3 (MIT; notice reproduced in
   `THIRD_PARTY_NOTICES.md`).

@@ -34,6 +34,8 @@ export function sortServers(rows) {
  */
 export function configHash(row) {
   const env = row.env ?? {};
+  const daemon = row.daemon;
+  const daemonEnv = daemon?.env ?? {};
   const identity = {
     serverName: row.serverName,
     transport: row.transport,
@@ -42,6 +44,16 @@ export function configHash(row) {
     env: Object.fromEntries(Object.keys(env).sort().map((key) => [key, env[key]])),
     cwd: row.cwd ?? '',
     disableTools: [...(row.disableTools ?? [])].sort(),
+    // A daemon change can change what the proxy serves, so it re-measures.
+    daemon: daemon
+      ? {
+          command: daemon.command,
+          args: daemon.args ?? [],
+          env: Object.fromEntries(Object.keys(daemonEnv).sort().map((key) => [key, daemonEnv[key]])),
+          cwd: daemon.cwd ?? '',
+          healthUrl: daemon.healthUrl,
+        }
+      : null,
   };
   return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
 }

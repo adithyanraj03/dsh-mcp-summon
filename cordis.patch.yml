@@ -29,3 +29,11 @@
         #     env: {}                   # secrets only here: args land in argv (visible to ps)
         #     cwd: ''
         #     toolCallTimeoutMs: 60000
+        #     # Optional: a long-lived local service this server proxies to. Summon
+        #     # probes healthUrl first, spawns the daemon detached only if nothing
+        #     # answers, and waits for health; release never kills it.
+        #     # daemon:
+        #     #   command: xerj
+        #     #   args: ['--insecure', '--data-dir', 'C:/Users/adith/xerj-data']
+        #     #   healthUrl: 'http://localhost:9200/'
+        #     #   startTimeoutMs: 15000
