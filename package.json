@@ -2,6 +2,7 @@
   "name": "dsh-mcp-summon",
   "version": "0.1.0",
   "description": "Dormant-by-default MCP for DeepSeek Harness: one mcp_summon tool; summoning a server registers its tools as real native tools (real schemas, native UI, approval gates, image results intact) for the rest of the session; release to reclaim.",
+  "icon": "assets/icon.png",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
@@ -24,7 +25,8 @@
   ],
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
-    "measure": "node scripts/measure-tokens.mjs"
+    "measure": "node scripts/measure-tokens.mjs",
+    "banners": "node scripts/make-banners.mjs"
   },
   "dsh": {
     "bundle": {
@@ -56,6 +58,7 @@
     "@deepseek-ai/dsh-subprocess": "^0.2.0-rc.1",
     "@deepseek-ai/dsh-tools": "^0.2.0-rc.1",
     "@deepseek-ai/schemastery": "^3.18.2",
+    "@resvg/resvg-js": "^2.6.2",
     "js-yaml": "^4.1.0"
   },
   "keywords": [
