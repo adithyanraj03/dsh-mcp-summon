@@ -46,7 +46,8 @@ mcp_summon({ action: "status" })
   - summon-fixture: dormant
 
 mcp_summon({ action: "release", server: "xerj" })
-→ released xerj: its tools unregister from your next turn and its process stopped.
+→ released xerj: its tools unregister from your next turn and its process
+  stopped (a daemon it started keeps running — it is shared infrastructure).
 ```
 
 召唤之后，这些工具就是**真正的原生工具**——使用与官方桥相同的 `ToolDefinition` 适配器（vendored，已按要求保留 MIT 声明）：真实 schema、原生 UI 渲染、逐工具审批门、图片结果完整进入持久存储。harness 每一轮重新组装工具集，因此它们从下一轮出现，行为与正常桥接的 MCP 工具完全一致。
@@ -102,6 +103,7 @@ dsh plugin --profile <your-profile> add dsh-mcp-summon
 | 机制 | dsh 接缝 |
 | --- | --- |
 | 加载期一个工具、零进程 | `apply` 中 `ctx.tools.register`；唯一的启动 I/O 是读一次测量缓存 |
+| daemon 支撑的服务器 | 探测 `healthUrl` → detached + unref'd 启动 → 轮询到健康 → 连接代理；`release` 让 daemon 继续运行 |
 | 召唤的工具下一轮出现 | `register` 触发 `tools/change`——「全局变更影响每个 agent 的下一次组装」——工具集每轮重组 |
 | 真正的原生行为 | 从 `@deepseek-ai/dsh-mcp-client` 0.2.1-rc.3 vendored 的工具适配器、传输工厂与命名规则（MIT） |
 | 诚实的成本行 | `{name, description, parameters}` 的 JSON 字节 ÷ 4——正是 registry `schemas()` 白名单发到线上的字段 |
@@ -121,7 +123,7 @@ node scripts/measure-tokens.mjs --config ~/.dsh/profiles/web/cordis.patch.yml
 node scripts/measure-tokens.mjs --from-json https://xerj.org/docs/agents/schemas/mcp-tools.json --label xerj
 ```
 
-本仓库实测（2026-10-28）：fixture 5 工具 = 902 B ≈ 226 tokens/轮；xerj 22 工具 = 53,297 B ≈ 13,325 tokens/轮。`mcp_summon` 自身的常驻表面（头部 + 两张卡片）为 1,591 B ≈ **398 tokens/轮**，只随服务器数量增长，与服务器大小无关。
+本仓库实测（2026-10-28）：fixture 5 工具 = 902 B ≈ 226 tokens/轮；xerj 22 工具 = 53,297 B ≈ 13,325 tokens/轮。用 `disableTools` 把 xerj 裁剪到 11 个搜索/hub 工具后实测 32,347 B ≈ **8,087 tokens/轮**——活跃成本直降 39%，对着真实服务器实测。`mcp_summon` 自身的常驻表面（头部 + 两张卡片）为 1,591 B ≈ **398 tokens/轮**，只随服务器数量增长，与服务器大小无关。
 
 ## dsh-mcp-summon 与 dsh-mcp-lazy 的对比
 
@@ -156,8 +158,9 @@ v1 边界，直说：
 
 ```sh
 pnpm install
-pnpm test        # 27 个测试：命名、卡片+缓存、分派，以及真实 stdio 子进程
-                 # （spawn → JSON-RPC → 原生注册 → 释放 → 杀进程）
+pnpm test        # 31 个测试：命名、卡片+缓存、分派、daemon 哈希，以及真实 stdio 子进程
+                 # （spawn → JSON-RPC → 原生注册 → 释放 → 杀进程）+ daemon
+                 # 启动/复用/健康超时路径
 pnpm run measure # 每服务器字节/tokens
 pnpm run banners # 从 SVG 重新渲染 assets/banner-*.png
 ```

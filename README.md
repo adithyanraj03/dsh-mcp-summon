@@ -46,7 +46,8 @@ mcp_summon({ action: "status" })
   - summon-fixture: dormant
 
 mcp_summon({ action: "release", server: "xerj" })
-→ released xerj: its tools unregister from your next turn and its process stopped.
+→ released xerj: its tools unregister from your next turn and its process
+  stopped (a daemon it started keeps running — it is shared infrastructure).
 ```
 
 After a summon the tools are **real native tools** — the same `ToolDefinition` adapter the official bridge uses (vendored, MIT notice reproduced): real schemas, native UI rendering, per-tool approval gates, image results admitted to durable storage intact. The harness re-assembles the tool set every turn, so they appear from the next turn and behave exactly like normally bridged MCP tools.
@@ -122,7 +123,7 @@ node scripts/measure-tokens.mjs --config ~/.dsh/profiles/web/cordis.patch.yml
 node scripts/measure-tokens.mjs --from-json https://xerj.org/docs/agents/schemas/mcp-tools.json --label xerj
 ```
 
-Measured on this repo (2026-10-28): fixture 5 tools = 902 B ≈ 226 tokens/turn; xerj 22 tools = 53,297 B ≈ 13,325 tokens/turn. The permanent surface of `mcp_summon` itself — header plus two cards — is 1,591 B ≈ **398 tokens/turn**, and it grows only with the number of configured servers, never with their size.
+Measured on this repo (2026-10-28): fixture 5 tools = 902 B ≈ 226 tokens/turn; xerj 22 tools = 53,297 B ≈ 13,325 tokens/turn. Trimming xerj to its 11 search/hub tools with `disableTools` measures 32,347 B ≈ **8,087 tokens/turn** — a 39% cut on the active cost, measured live against the real server. The permanent surface of `mcp_summon` itself — header plus two cards — is 1,591 B ≈ **398 tokens/turn**, and it grows only with the number of configured servers, never with their size.
 
 ## dsh-mcp-summon vs dsh-mcp-lazy
 
@@ -157,8 +158,9 @@ The v1 boundary, stated plainly:
 
 ```sh
 pnpm install
-pnpm test        # 27 tests: naming, cards+cache, dispatch, and a real stdio child
-                 # (spawn → JSON-RPC → native registration → release → kill)
+pnpm test        # 31 tests: naming, cards+cache, dispatch, daemon hash, and a
+                 # real stdio child (spawn → JSON-RPC → native registration →
+                 # release → kill) plus daemon spawn/reuse/health-timeout paths
 pnpm run measure # per-server bytes/tokens
 pnpm run banners # re-render assets/banner-*.png from the SVGs
 ```

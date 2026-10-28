@@ -11,6 +11,7 @@ title: dsh-mcp-summon
 | Server | Tools | ≈ tokens / turn |
 | --- | ---: | ---: |
 | xerj | 22 | **13,325** |
+| xerj, trimmed with `disableTools` | 11 | 8,087 |
 | chrome-devtools-mcp | 29 | 5,313 |
 | test fixture | 5 | 226 |
 | `mcp_summon` itself (2 servers) | 1 | 398 |
@@ -20,7 +21,7 @@ Idle servers cost **0** — no process, no schema, no spawn at load.
 ## How it works
 
 1. At load the plugin registers `mcp_summon` only. Its description carries a byte-stable card per server: name, capability summary, tool count, and an honest "activating adds ~N tokens/turn" line from a disk-cached measurement — a server is never spawned just to card it.
-2. `summon(server)` spawns the stdio child, fetches `tools/list`, and registers each tool via `ctx.tools.register` under `mcp__<server>__<tool>`, keeping every disposer. The harness re-assembles the tool set per turn, so from the **next** turn the model calls them directly.
+2. `summon(server)` spawns the stdio child, fetches `tools/list`, and registers each tool via `ctx.tools.register` under `mcp__<server>__<tool>`, keeping every disposer. The harness re-assembles the tool set per turn, so from the **next** turn the model calls them directly. If the row declares a `daemon:` (a long-lived local service the server proxies to, like `xerj mcp` → a node on :9200), the plugin probes its health URL first and spawns it detached only if nothing answers — `release` never kills the shared daemon.
 3. `release(server)` runs the disposers and kills the child. Crash or session end falls back to dormant — the safe direction.
 
 ```
